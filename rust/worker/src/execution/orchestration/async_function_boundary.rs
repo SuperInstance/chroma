@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chroma_types::chroma_proto::{CollectionVersionFile, CollectionVersionInfo, FilePaths};
+use chroma_types::chroma_proto::{CollectionVersionFile, CollectionVersionInfo};
 use chroma_types::Segment;
 
 #[derive(Debug, Clone)]
@@ -15,7 +15,7 @@ pub(crate) fn resolve_boundary_plan_from_version_file(
     max_compaction_size: usize,
     live_record_segment: &Segment,
 ) -> Result<AsyncFnBoundaryPlan, String> {
-    let empty_record_segment = empty_record_segment(live_record_segment);
+    let empty_segment = empty_record_segment(live_record_segment);
 
     let Some(version_file) = version_file else {
         return Err(format!(
@@ -64,29 +64,29 @@ pub(crate) fn resolve_boundary_plan_from_version_file(
                 completion_offset
             ));
         }
-        Some((version, _)) => historical_record_segment_for_version(live_record_segment, version),
-        None => empty_record_segment,
+        Some((version, _)) => historical_record_segment_for_version(live_record_segment, version)
+            .unwrap_or_else(|| empty_record_segment(live_record_segment)),
+        None => empty_segment,
     };
 
-    if let Some(next_boundary) = next_boundary {
-        let log_window_size = usize::try_from(next_boundary - completion_offset)
-            .map_err(|_| "next boundary precedes completion offset".to_string())?;
-        if log_window_size > max_compaction_size {
-            return Err(format!(
-                "next compaction boundary window {} exceeds max_compaction_size {}",
-                log_window_size, max_compaction_size
-            ));
-        }
-    } else {
-        return Err(format!(
+    let target_log_position = next_boundary.ok_or_else(|| {
+        format!(
             "async fn completion offset {} has no next compaction boundary",
             completion_offset
+        )
+    })?;
+    let log_window_size = usize::try_from(target_log_position - completion_offset)
+        .map_err(|_| "next boundary precedes completion offset".to_string())?;
+    if log_window_size > max_compaction_size {
+        return Err(format!(
+            "next compaction boundary window {} exceeds max_compaction_size {}",
+            log_window_size, max_compaction_size
         ));
     }
 
     Ok(AsyncFnBoundaryPlan {
         historical_record_segment,
-        target_log_position: next_boundary.unwrap(),
+        target_log_position,
     })
 }
 
@@ -96,35 +96,26 @@ fn empty_record_segment(record_segment: &Segment) -> Segment {
     segment
 }
 
+/// Returns the record segment rewired to the file paths captured at `version`.
 fn historical_record_segment_for_version(
     record_segment: &Segment,
     version: &CollectionVersionInfo,
-) -> Segment {
-    let mut historical_segment = record_segment.clone();
-    let Some(segment_info) = version.segment_info.as_ref() else {
-        historical_segment.file_path.clear();
-        return historical_segment;
-    };
-
-    let Some(record_segment_info) = segment_info
+) -> Option<Segment> {
+    let record_segment_info = version
+        .segment_info
+        .as_ref()?
         .segment_compaction_info
         .iter()
         .find(|segment_info| segment_info.segment_id == record_segment.id.to_string())
-    else {
-        historical_segment.file_path.clear();
-        return historical_segment;
-    };
+        ?;
 
+    let mut historical_segment = record_segment.clone();
     historical_segment.file_path = record_segment_info
         .file_paths
         .iter()
-        .map(|(key, value)| (key.clone(), file_paths_to_vec(value)))
+        .map(|(key, value)| (key.clone(), value.paths.clone()))
         .collect::<HashMap<_, _>>();
-    historical_segment
-}
-
-fn file_paths_to_vec(file_paths: &FilePaths) -> Vec<String> {
-    file_paths.paths.clone()
+    Some(historical_segment)
 }
 
 #[cfg(test)]
