@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chromadb-intelligence"
+version = "0.1.0"
+description = "Spectral graph intelligence for Chroma collections"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.9"
+dependencies = [
+    "chromadb>=1.5",
+    "numpy>=1.24",
+    "scipy>=1.10",
+]
+
+[project.scripts]
+chroma-intel = "chromadb_intelligence.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["chromadb_intelligence*"]
+
+[tool.pytest.ini_options]
+testpaths = ["chromadb_intelligence"]

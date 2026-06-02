@@ -73,6 +73,84 @@ Chroma is a rapidly developing project. We welcome PR contributors and ideas for
 **Release Cadence**
 We currently release new tagged versions of the `pypi` and `npm` packages on Mondays. Hotfixes go out at any time during the week.
 
+## chromadb-intelligence — Spectral Analysis for Chroma Collections
+
+`chromadb_intelligence` is a Python package that extracts the **vector index graph** from a Chroma collection and runs **spectral graph analysis** to answer:
+
+> *How many categories does your embedding space actually have?*
+
+Key capabilities:
+
+- **Fiedler vector** — identifies natural clusters in embedding space
+- **Cheeger constant** — quantifies cluster separation quality
+- **Spectral community detection** — compare labeled categories vs geometric clusters
+- **Jensen-Shannon divergence** — distance distribution differences between clusters
+- **Embedding drift detector** — compare spectral signature now vs 30 days ago
+
+### Quick Start
+
+```bash
+pip install chromadb chromadb-intelligence
+```
+
+```python
+from chromadb_intelligence import CollectionIntelligence
+
+ci = CollectionIntelligence()
+report = ci.analyze("my_docs")
+
+# Your embeddings say 12 categories. The geometry says 19.
+print(f"Your labels: 12 | Geometry: {report.num_communities}")
+print(f"Fiedler value: {report.fiedler_value:.4f}")
+```
+
+### CLI
+
+```bash
+chroma-intel analyze --collection my_docs --json
+chroma-intel drift --collection my_docs --baseline my_docs_snapshot.json
+```
+
+### Drift Detection
+
+```python
+# Today
+snapshot = ci.analyze("my_docs")
+ci.save_snapshot("snapshot.json")
+
+# 30 days later
+drift = ci.detect_drift("my_docs", snapshot_before=ci.load_snapshot("snapshot.json")[-1]["report"])
+drift.message
+# "Embedding drift detected: Fiedler value dropped from 0.42 to 0.18..."
+```
+
+### Insight Engine
+
+```bash
+# Your embeddings say 12 categories. The geometry says 19. Your embedding model needs work.
+chroma-intel analyze --collection my_docs
+```
+
+```
+============================================================
+  CHROMA COLLECTION INTELLIGENCE REPORT
+============================================================
+  Points:             8543
+  Embedding dim:      768
+  Fiedler value:      0.241234
+  Spectral gap:       0.087656
+  Cheeger constant:   0.312345
+  Communities found:  19
+  JSD (per cluster):  {'0_vs_1': 0.543, '0_vs_2': 0.621, ...}
+  Drift detected:     True
+============================================================
+
+  INSIGHT:
+  Your embeddings say 12 categories. The geometry says 19.
+  ⚠ Low Fiedler value — clusters are poorly separated.
+    Consider improving your embedding model.
+```
+
 ## License
 
 [Apache 2.0](./LICENSE)
